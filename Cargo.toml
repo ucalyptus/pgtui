@@ -1,0 +1,23 @@
+[package]
+name = "pgtui"
+version = "0.1.0"
+edition = "2021"
+description = "Terminal UI browser for PostgreSQL databases — a ratatui take on pgweb"
+readme = "README.md"
+license = "MIT"
+keywords = ["postgres", "postgresql", "tui", "database", "ratatui"]
+categories = ["database", "command-line-utilities"]
+
+[dependencies]
+anyhow = "1"
+ratatui = "0.30"
+crossterm = "0.29"
+postgres = "0.19"
+csv = "1"
+
+[dev-dependencies]
+postgres = "0.19"
+
+[profile.release]
+lto = true
+strip = true
