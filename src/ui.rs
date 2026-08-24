@@ -153,10 +153,12 @@ fn draw_form(f: &mut Frame, app: &mut App) {
 
 fn draw_browser(f: &mut Frame, app: &mut App) {
     let v = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(f.area());
-    let [main_area, status_area] = v[..] else {
-        return;
-    };
-    let h = Layout::horizontal([Constraint::Length(30), Constraint::Min(0)]).split(main_area);
+    let [main_area, status_area] = v[..] else { return };
+
+    // Sidebar adapts to pane width: cap at 30, but yield the grid the bulk
+    // of a narrow split (floor 14 so a tiny pane still has a usable list).
+    let sidebar_w = (f.area().width / 4).clamp(14, 30);
+    let h = Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(0)]).split(main_area);
     let [sidebar_a, content] = h[..] else { return };
 
     let sp = spin(app);
