@@ -64,7 +64,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Screen::Browser => draw_browser(f, app),
     }
     if app.screen == Screen::Browser && app.br.as_ref().is_some_and(|br| br.inspect_row) {
-        if let Some(br) = app.br.as_ref() {
+        if let Some(br) = app.br.as_mut() {
             draw_row_inspector(f, br);
         }
     }
@@ -986,7 +986,7 @@ fn draw_info(f: &mut Frame, br: &mut Browser, sp: &str, area: Rect) {
         .collect();
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
-fn draw_row_inspector(f: &mut Frame, br: &Browser) {
+fn draw_row_inspector(f: &mut Frame, br: &mut Browser) {
     let Some(rows) = br.rows.as_ref() else { return };
     let Some(row) = rows.grid.rows.get(br.cell.0) else {
         return;
@@ -1026,6 +1026,8 @@ fn draw_row_inspector(f: &mut Frame, br: &Browser) {
     f.render_widget(Paragraph::new(lines).scroll((0, offset as u16)), body);
 
     let footer = Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1);
+    br.rects.row_scrollbar = footer;
+    br.rects.row_scroll_max = max_scroll;
     let mut scrollbar_state = ScrollbarState::new(content_width)
         .position(offset)
         .viewport_content_length(body.width as usize);

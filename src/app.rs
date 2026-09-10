@@ -618,6 +618,8 @@ pub struct Rects {
     pub result: Option<Rect>,
     pub pane: Rect,
     pub sidebar_divider: Rect,
+    pub row_scrollbar: Rect,
+    pub row_scroll_max: usize,
 }
 
 pub struct Browser {
@@ -657,6 +659,7 @@ pub struct Browser {
     pub order: Option<(String, bool)>,
     pub inspect_row: bool,
     pub inspect_x: usize,
+    pub dragging_row_scrollbar: bool,
 
     // query tab
     pub q: QueryState,
@@ -709,6 +712,7 @@ impl Browser {
             order: None,
             inspect_row: false,
             inspect_x: 0,
+            dragging_row_scrollbar: false,
             q: QueryState::new(),
             stats: None,
             info_loading: false,
@@ -1622,6 +1626,16 @@ impl App {
         br.q.res_cell.0 = r;
     }
 
+    fn set_row_scroll(&mut self, x: u16) {
+        let Some(br) = self.br.as_mut() else { return };
+        let track = br.rects.row_scrollbar.width.saturating_sub(1) as usize;
+        if track == 0 {
+            return;
+        }
+        let pos = x.saturating_sub(br.rects.row_scrollbar.x).min(track as u16) as usize;
+        br.inspect_x = br.rects.row_scroll_max.saturating_mul(pos) / track;
+    }
+
     // --------------------------------------------------------------- mouse
 
     pub fn on_mouse(&mut self, m: MouseEvent) {
@@ -1644,6 +1658,34 @@ impl App {
             return;
         }
         if self.br.is_none() {
+            return;
+        }
+        if self.br.as_ref().is_some_and(|br| br.inspect_row) {
+            match m.kind {
+                MouseEventKind::Down(MouseButton::Left) => {
+                    let on_scrollbar = self
+                        .br
+                        .as_ref()
+                        .is_some_and(|br| hit(br.rects.row_scrollbar, m.column, m.row));
+                    if on_scrollbar {
+                        if let Some(br) = self.br.as_mut() {
+                            br.dragging_row_scrollbar = true;
+                        }
+                        self.set_row_scroll(m.column);
+                    }
+                }
+                MouseEventKind::Drag(MouseButton::Left) => {
+                    if self.br.as_ref().is_some_and(|br| br.dragging_row_scrollbar) {
+                        self.set_row_scroll(m.column);
+                    }
+                }
+                MouseEventKind::Up(MouseButton::Left) => {
+                    if let Some(br) = self.br.as_mut() {
+                        br.dragging_row_scrollbar = false;
+                    }
+                }
+                _ => {}
+            }
             return;
         }
         match m.kind {
