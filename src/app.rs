@@ -617,6 +617,7 @@ pub struct Rects {
     pub editor: Option<Rect>,
     pub result: Option<Rect>,
     pub pane: Rect,
+    pub sidebar_divider: Rect,
 }
 
 pub struct Browser {
@@ -625,6 +626,8 @@ pub struct Browser {
     pub tab: Tab,
 
     // sidebar
+    pub sidebar_width: u16,
+    pub resizing_sidebar: bool,
     pub tables: Vec<TableInfo>,
     pub tables_loading: bool,
     pub tables_error: Option<String>,
@@ -680,6 +683,8 @@ impl Browser {
             tables: Vec::new(),
             tables_loading: true,
             tables_error: None,
+            sidebar_width: 0,
+            resizing_sidebar: false,
             filter: String::new(),
             filtering: false,
             sel: 0,
@@ -1617,7 +1622,32 @@ impl App {
             return;
         }
         match m.kind {
-            MouseEventKind::Down(MouseButton::Left) => self.on_click(m.column, m.row),
+            MouseEventKind::Down(MouseButton::Left) => {
+                let on_divider = self
+                    .br
+                    .as_ref()
+                    .is_some_and(|br| hit(br.rects.sidebar_divider, m.column, m.row));
+                if on_divider {
+                    if let Some(br) = self.br.as_mut() {
+                        br.resizing_sidebar = true;
+                    }
+                } else {
+                    self.on_click(m.column, m.row);
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let Some(br) = self.br.as_mut() {
+                    if br.resizing_sidebar {
+                        let max = br.rects.pane.right().saturating_sub(20).max(14);
+                        br.sidebar_width = m.column.clamp(14, max);
+                    }
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                if let Some(br) = self.br.as_mut() {
+                    br.resizing_sidebar = false;
+                }
+            }
             MouseEventKind::ScrollUp => self.on_wheel(-1, m.column, m.row),
             MouseEventKind::ScrollDown => self.on_wheel(1, m.column, m.row),
             _ => {}

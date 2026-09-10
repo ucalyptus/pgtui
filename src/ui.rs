@@ -9,8 +9,8 @@ use ratatui::Frame;
 use std::cmp::min;
 
 const ACCENT: Color = Color::Cyan;
-const DIM: Color = Color::DarkGray;
-const BORDER: Color = Color::DarkGray;
+const DIM: Color = Color::Reset;
+const BORDER: Color = Color::Reset;
 const ERR: Color = Color::Red;
 const OK: Color = Color::Green;
 const WARN: Color = Color::Yellow;
@@ -104,7 +104,7 @@ fn draw_form(f: &mut Frame, app: &mut App) {
                 Style::new().fg(if focused { ACCENT } else { DIM }).bold(),
             ),
             Span::raw("  "),
-            Span::styled(shown.clone(), Style::new().fg(Color::White)),
+            Span::styled(shown.clone(), Style::new().fg(Color::Reset)),
         ];
         if focused {
             spans.push(Span::styled("▏", Style::new().fg(ACCENT)));
@@ -157,17 +157,41 @@ fn draw_browser(f: &mut Frame, app: &mut App) {
         return;
     };
 
-    // Sidebar adapts to pane width: cap at 30, but yield the grid the bulk
-    // of a narrow split (floor 14 so a tiny pane still has a usable list).
-    let sidebar_w = (f.area().width / 4).clamp(14, 30);
+    let default_sidebar = (f.area().width / 4).clamp(14, 30);
+    let max_sidebar = f.area().width.saturating_sub(20).max(14);
+    let sidebar_w = app
+        .br
+        .as_ref()
+        .map(|br| {
+            if br.sidebar_width == 0 {
+                default_sidebar
+            } else {
+                br.sidebar_width.clamp(14, max_sidebar)
+            }
+        })
+        .unwrap_or(default_sidebar);
     let h =
         Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(0)]).split(main_area);
     let [sidebar_a, content] = h[..] else { return };
 
     let sp = spin(app);
     let Some(br) = app.br.as_mut() else { return };
-
+    let divider = Rect::new(
+        sidebar_a.right().saturating_sub(1),
+        main_area.y,
+        1,
+        main_area.height,
+    );
+    br.rects.sidebar_divider = divider;
     draw_sidebar(f, br, sp, sidebar_a);
+    f.render_widget(
+        Paragraph::new("│").style(Style::new().fg(if br.resizing_sidebar {
+            ACCENT
+        } else {
+            BORDER
+        })),
+        divider,
+    );
 
     // tab bar
     let tabs_rect = Rect::new(content.x, content.y, content.width, 1);
@@ -245,7 +269,7 @@ fn draw_sidebar(f: &mut Frame, br: &mut Browser, sp: &str, area: Rect) {
         f.render_widget(fblock, fbox);
         let mut spans = vec![Span::styled(
             br.filter.clone(),
-            Style::new().fg(Color::White),
+            Style::new().fg(Color::Reset),
         )];
         if br.filtering {
             spans.push(Span::styled("▏", Style::new().fg(ACCENT)));
@@ -303,11 +327,8 @@ fn draw_sidebar(f: &mut Frame, br: &mut Browser, sp: &str, area: Rect) {
                 format!("{marker} "),
                 Style::new().fg(if open { ACCENT } else { DIM }),
             ),
-            Span::styled(t.name.clone(), style.fg(Color::White)),
-            Span::styled(
-                format!(" {}", t.kind),
-                Style::new().fg(kind_color(&t.kind)).dim(),
-            ),
+            Span::styled(t.name.clone(), style.fg(Color::Reset)),
+            Span::styled(format!(" {}", t.kind), Style::new().fg(kind_color(&t.kind))),
         ];
         if t.est_rows > 0 {
             spans.push(Span::styled(
@@ -372,7 +393,7 @@ fn rows_filter_bar(f: &mut Frame, br: &mut Browser, area: Rect) -> Option<Rect> 
     f.render_widget(fblock, fb);
     let mut spans = vec![Span::styled(
         br.rows_filter.clone(),
-        Style::new().fg(Color::White),
+        Style::new().fg(Color::Reset),
     )];
     if br.rows_filtering {
         spans.push(Span::styled("▏", Style::new().fg(WARN)));
@@ -578,7 +599,7 @@ fn draw_structure(f: &mut Frame, br: &mut Browser, sp: &str, area: Rect) {
             .take(view)
             .map(|c| {
                 Row::new(vec![
-                    Cell::from(c.name.clone()).style(Style::new().fg(Color::White)),
+                    Cell::from(c.name.clone()).style(Style::new().fg(Color::Reset)),
                     Cell::from(c.data_type.clone()).style(Style::new().fg(ACCENT)),
                     Cell::from(if c.nullable { "yes" } else { "no" }).style(Style::new().fg(DIM)),
                     Cell::from(c.default.clone()),
@@ -610,7 +631,7 @@ fn draw_structure(f: &mut Frame, br: &mut Browser, sp: &str, area: Rect) {
             .take(view)
             .map(|c| {
                 Row::new(vec![
-                    Cell::from(c.name.clone()).style(Style::new().fg(Color::White)),
+                    Cell::from(c.name.clone()).style(Style::new().fg(Color::Reset)),
                     Cell::from(c.kind.clone()).style(Style::new().fg(if c.kind == "PRIMARY KEY" {
                         WARN
                     } else {
@@ -664,7 +685,7 @@ fn draw_indexes(f: &mut Frame, br: &mut Browser, sp: &str, area: Rect) {
         .take(view)
         .map(|ix| {
             Row::new(vec![
-                Cell::from(ix.name.clone()).style(Style::new().fg(Color::White)),
+                Cell::from(ix.name.clone()).style(Style::new().fg(Color::Reset)),
                 Cell::from(if ix.is_unique { "uniq" } else { "" }).style(Style::new().fg(OK)),
                 Cell::from(if ix.is_primary { "pk" } else { "" })
                     .style(Style::new().fg(WARN).bold()),
@@ -806,7 +827,7 @@ fn draw_query(f: &mut Frame, br: &mut Browser, sp: &str, area: Rect) {
                     text.push_str(" …");
                 }
                 let style = if picked {
-                    Style::new().bg(SEL_BG).fg(Color::White).bold()
+                    Style::new().bg(SEL_BG).fg(Color::Reset).bold()
                 } else {
                     Style::new().fg(DIM)
                 };
@@ -926,7 +947,7 @@ fn draw_info(f: &mut Frame, br: &mut Browser, sp: &str, area: Rect) {
         .map(|(k, v)| {
             Line::from(vec![
                 Span::styled(format!("{k:<14}"), Style::new().fg(ACCENT).bold()),
-                Span::styled(v.clone(), Style::new().fg(Color::White)),
+                Span::styled(v.clone(), Style::new().fg(Color::Reset)),
             ])
         })
         .collect();
@@ -1002,7 +1023,7 @@ fn draw_help(f: &mut Frame) {
     let title = " keys ";
     f.render_widget(
         Paragraph::new(text)
-            .style(Style::new().fg(Color::White))
+            .style(Style::new().fg(Color::Reset))
             .block(bordered(title))
             .wrap(Wrap { trim: false }),
         area,
