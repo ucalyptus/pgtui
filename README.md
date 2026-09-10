@@ -5,8 +5,7 @@ It is the TUI sibling of [pgweb](https://github.com/sosedoff/pgweb): connect, br
 page through rows, inspect structure/indexes, run SQL — without leaving the terminal.
 
 ## Features
-
-- Connect via URL (`postgres://...`), `DATABASE_URL`, CLI flags, or an interactive form
+- Connect via URL (`postgres://...`), `DATABASE_URL`, CLI flags, PostgreSQL's `~/.pgpass` or `~/.netrc`, or an interactive form
 - Sidebar with schemas/tables/views/materialized views + live filter (public schema first)
 - **Rows** tab: paginated data grid, cell cursor, column sort, raw-SQL `WHERE` filter, CSV export
 - **Structure** tab: columns (type, nullability, default, PK, comment) and constraints
@@ -30,13 +29,35 @@ Requires Rust 1.81+. No external dependencies; talks to Postgres over the wire p
 ## Usage
 
 ```sh
-pgtui                                                # interactive connect form
+pgtui                                                # auto-connects from ~/.pgpass when present
 pgtui postgres://user:pass@localhost:5432/mydb       # full URL
 pgtui --url "$SOME_URL"                              # same, explicit
 DATABASE_URL=postgres://... pgtui                    # from environment
 
-pgtui -H localhost -p 5432 -U alice -d shop          # keyword pieces (PGPASSWORD honored)
+pgtui -H localhost -p 5432 -U alice -d shop          # keyword pieces; ~/.pgpass supplies the password
 ```
+
+For automatic credential loading, pgtui accepts PostgreSQL's `~/.pgpass` or
+a common `~/.netrc` file. Both files must have mode `0600`. A complete
+`.pgpass` entry auto-connects; `.netrc` entries prefill the form because netrc
+does not include a database name.
+
+Preferred PostgreSQL format:
+
+```text
+hostname:port:database:username:password
+localhost:5432:shop:alice:secret
+```
+
+Common netrc format:
+
+```text
+machine localhost login alice password secret
+```
+
+Use `*` as a `.pgpass` wildcard, or `default` in `.netrc`. Set `PGPASSFILE`
+or `NETRC` to use another file. Explicit URLs and `PGPASSWORD` take
+precedence over credential files.
 
 ## Keys
 

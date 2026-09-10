@@ -40,7 +40,9 @@ OPTIONS:
 
 ENVIRONMENT:
     DATABASE_URL         used when no connection string is given
-    PGPASSWORD           prefills the password field";
+    PGPASSWORD            prefills the password field
+    PGPASSFILE            PostgreSQL password file (default ~/.pgpass)
+    NETRC                 netrc file (default ~/.netrc)";
 
 struct Opts {
     url: Option<String>,
@@ -48,6 +50,7 @@ struct Opts {
     port: Option<String>,
     user: Option<String>,
     db: Option<String>,
+    password: Option<String>,
 }
 
 fn parse_args() -> Result<(Opts, bool)> {
@@ -57,6 +60,7 @@ fn parse_args() -> Result<(Opts, bool)> {
         port: None,
         user: None,
         db: None,
+        password: None,
     };
     let mut args = std::env::args().skip(1);
     let mut positional: Option<String> = None;
@@ -126,16 +130,59 @@ fn teardown() {
 }
 
 fn run() -> Result<()> {
-    let (opts, proceed) = parse_args()?;
+    let (mut opts, proceed) = parse_args()?;
     if !proceed {
         return Ok(());
     }
-    // Auto-connect when the user supplied a URL or any explicit keyword piece
-    // (-H/-p/-U/-d). Bare `pgtui` has none of these set (only defaults) and
-    // must land on the interactive form.
+    // Auto-connect for complete URLs/flags or a complete .pgpass entry.
+    // A .netrc has no database field, so it prefills the form for editing.
     let has_url = opts.url.is_some();
     let has_flags =
         opts.host.is_some() || opts.port.is_some() || opts.user.is_some() || opts.db.is_some();
+    let pgpass = app::load_pgpass().unwrap_or_default();
+    let netrc = app::load_netrc().unwrap_or_default();
+    let default_user = std::env::var("USER").unwrap_or_else(|_| "postgres".into());
+    let pgpass_entry = if !has_url {
+        if has_flags {
+            app::find_pgpass(
+                &pgpass,
+                opts.host.as_deref().unwrap_or("localhost"),
+                opts.port.as_deref().unwrap_or("5432"),
+                opts.db.as_deref().unwrap_or(""),
+                opts.user.as_deref().unwrap_or(&default_user),
+            )
+        } else {
+            pgpass.first()
+        }
+    } else {
+        None
+    }
+    .cloned();
+    let netrc_entry = if pgpass_entry.is_none() && !has_url {
+        app::find_netrc(&netrc, opts.host.as_deref().unwrap_or("localhost"))
+    } else {
+        None
+    };
+    let auto_credentials = !has_url && !has_flags && pgpass_entry.is_some();
+    if let Some(entry) = pgpass_entry {
+        if !has_flags {
+            opts.host = Some(app::pgpass_value(&entry.host, "localhost"));
+            opts.port = Some(app::pgpass_value(&entry.port, "5432"));
+            opts.user = Some(app::pgpass_value(&entry.user, &default_user));
+            opts.db = Some(app::pgpass_value(&entry.database, ""));
+        }
+        if std::env::var_os("PGPASSWORD").is_none() {
+            opts.password = Some(entry.password);
+        }
+    } else if let Some(entry) = netrc_entry {
+        if !has_flags {
+            opts.host = Some(app::pgpass_value(&entry.machine, "localhost"));
+            opts.user = Some(entry.login.clone());
+        }
+        if std::env::var_os("PGPASSWORD").is_none() {
+            opts.password = Some(entry.password.clone());
+        }
+    }
 
     let (tx, rx) = db::spawn();
     let mut a = app::App::new(
@@ -146,9 +193,10 @@ fn run() -> Result<()> {
             port: opts.port,
             user: opts.user,
             db: opts.db,
+            password: opts.password,
         },
     );
-    if has_url || has_flags {
+    if has_url || has_flags || auto_credentials {
         a.begin_connect();
     }
 

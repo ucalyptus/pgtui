@@ -111,6 +111,216 @@ impl CfField {
         }
     }
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PgPassEntry {
+    pub host: String,
+    pub port: String,
+    pub database: String,
+    pub user: String,
+    pub password: String,
+}
+
+/// Parse PostgreSQL's `~/.pgpass` format. Colons and backslashes are escaped
+/// with a backslash; malformed lines are ignored like libpq.
+pub fn parse_pgpass(contents: &str) -> Vec<PgPassEntry> {
+    contents
+        .lines()
+        .filter_map(|line| {
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+            let mut fields = Vec::with_capacity(5);
+            let mut field = String::new();
+            let mut escaped = false;
+            for ch in line.chars() {
+                if escaped {
+                    field.push(ch);
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == ':' {
+                    fields.push(std::mem::take(&mut field));
+                } else {
+                    field.push(ch);
+                }
+            }
+            if escaped {
+                field.push('\\');
+            }
+            fields.push(field);
+            (fields.len() == 5).then(|| PgPassEntry {
+                host: fields.remove(0),
+                port: fields.remove(0),
+                database: fields.remove(0),
+                user: fields.remove(0),
+                password: fields.remove(0),
+            })
+        })
+        .collect()
+}
+
+pub fn load_pgpass() -> std::io::Result<Vec<PgPassEntry>> {
+    let path = std::env::var_os("PGPASSFILE")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".pgpass"))
+        });
+    let Some(path) = path else {
+        return Ok(Vec::new());
+    };
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if std::fs::metadata(&path)?.permissions().mode() & 0o077 != 0 {
+            return Ok(Vec::new());
+        }
+    }
+    Ok(parse_pgpass(&contents))
+}
+
+pub fn find_pgpass<'a>(
+    entries: &'a [PgPassEntry],
+    host: &str,
+    port: &str,
+    database: &str,
+    user: &str,
+) -> Option<&'a PgPassEntry> {
+    entries.iter().find(|entry| {
+        [
+            (&entry.host, host),
+            (&entry.port, port),
+            (&entry.database, database),
+            (&entry.user, user),
+        ]
+        .into_iter()
+        .all(|(pattern, value)| pattern == "*" || pattern == value)
+    })
+}
+
+pub fn pgpass_value(value: &str, default: &str) -> String {
+    if value == "*" {
+        default.into()
+    } else {
+        value.into()
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NetrcEntry {
+    pub machine: String,
+    pub login: String,
+    pub password: String,
+}
+
+/// Parse the common `machine ... login ... password ...` netrc records.
+pub fn parse_netrc(contents: &str) -> Vec<NetrcEntry> {
+    let mut tokens = Vec::new();
+    let mut token = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    for ch in contents.chars() {
+        if escaped {
+            token.push(ch);
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if quote == Some(ch) {
+            quote = None;
+        } else if quote.is_none() && (ch == '\'' || ch == '"') {
+            quote = Some(ch);
+        } else if quote.is_none() && ch.is_whitespace() {
+            if !token.is_empty() {
+                tokens.push(std::mem::take(&mut token));
+            }
+        } else {
+            token.push(ch);
+        }
+    }
+    if !token.is_empty() {
+        tokens.push(token);
+    }
+
+    let mut entries = Vec::new();
+    let mut machine = None;
+    let mut login = None;
+    let mut password = None;
+    let mut i = 0;
+    while i < tokens.len() {
+        match tokens[i].as_str() {
+            "machine" | "default" => {
+                if let (Some(machine), Some(login), Some(password)) =
+                    (machine.take(), login.take(), password.take())
+                {
+                    entries.push(NetrcEntry {
+                        machine,
+                        login,
+                        password,
+                    });
+                }
+                machine = Some(if tokens[i] == "default" {
+                    "*".into()
+                } else {
+                    tokens.get(i + 1).cloned().unwrap_or_default()
+                });
+                i += usize::from(tokens[i] == "machine");
+            }
+            "login" => {
+                login = tokens.get(i + 1).cloned();
+                i += 1;
+            }
+            "password" => {
+                password = tokens.get(i + 1).cloned();
+                i += 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if let (Some(machine), Some(login), Some(password)) = (machine, login, password) {
+        entries.push(NetrcEntry {
+            machine,
+            login,
+            password,
+        });
+    }
+    entries
+}
+
+pub fn load_netrc() -> std::io::Result<Vec<NetrcEntry>> {
+    let path = std::env::var_os("NETRC")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".netrc"))
+        });
+    let Some(path) = path else {
+        return Ok(Vec::new());
+    };
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if std::fs::metadata(&path)?.permissions().mode() & 0o077 != 0 {
+            return Ok(Vec::new());
+        }
+    }
+    Ok(parse_netrc(&contents))
+}
+
+pub fn find_netrc<'a>(entries: &'a [NetrcEntry], host: &str) -> Option<&'a NetrcEntry> {
+    entries
+        .iter()
+        .find(|entry| entry.machine == "*" || entry.machine == host)
+}
+
+// ------------------------------------------------------------ connect form
 
 pub struct ConnectForm {
     pub url: String,
@@ -537,6 +747,7 @@ pub struct StartupOpts {
     pub port: Option<String>,
     pub user: Option<String>,
     pub db: Option<String>,
+    pub password: Option<String>,
 }
 
 pub struct App {
@@ -580,6 +791,9 @@ impl App {
         }
         if let Some(u) = opts.url {
             form.url = u;
+        }
+        if let Some(pw) = opts.password {
+            form.password = pw;
         }
         App {
             screen: Screen::Form,
@@ -1708,6 +1922,7 @@ mod tests {
                 port: None,
                 user: None,
                 db: None,
+                password: None,
             },
         );
         let meta = ConnMeta {
@@ -1728,5 +1943,46 @@ mod tests {
         // and back
         a.on_browser_key(tab);
         assert_eq!(a.br.as_ref().unwrap().focus, Focus::Sidebar);
+    }
+
+    #[test]
+    fn parses_pgpass_escapes_and_ignores_malformed_lines() {
+        let entries = parse_pgpass(
+            "# comment
+db.local:5432:shop:alice:p\\:ss\\\\word
+malformed
+",
+        );
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].password, "p:ss\\word");
+    }
+
+    #[test]
+    fn finds_first_matching_pgpass_entry() {
+        let entries = parse_pgpass(
+            "*:*:*:alice:first
+db.local:5432:shop:alice:second
+",
+        );
+        assert_eq!(
+            find_pgpass(&entries, "db.local", "5432", "shop", "alice")
+                .unwrap()
+                .password,
+            "first"
+        );
+        assert_eq!(pgpass_value("*", "localhost"), "localhost");
+        assert_eq!(pgpass_value("db.local", "localhost"), "db.local");
+    }
+    #[test]
+    fn parses_netrc_machine_records() {
+        let entries = parse_netrc(
+            r#"machine db.local login alice password "p ss"
+default login fallback password fallback-pass"#,
+        );
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].machine, "db.local");
+        assert_eq!(entries[0].login, "alice");
+        assert_eq!(entries[0].password, "p ss");
+        assert_eq!(find_netrc(&entries, "missing").unwrap().login, "fallback");
     }
 }
