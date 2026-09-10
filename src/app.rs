@@ -656,6 +656,7 @@ pub struct Browser {
     pub col_off: usize,
     pub order: Option<(String, bool)>,
     pub inspect_row: bool,
+    pub inspect_x: usize,
 
     // query tab
     pub q: QueryState,
@@ -707,6 +708,7 @@ impl Browser {
             col_off: 0,
             order: None,
             inspect_row: false,
+            inspect_x: 0,
             q: QueryState::new(),
             stats: None,
             info_loading: false,
@@ -1186,12 +1188,19 @@ impl App {
             }
             return;
         }
-        if self.screen == Screen::Browser
-            && self.br.as_ref().is_some_and(|br| br.inspect_row)
-            && k.code == KeyCode::Esc
-        {
+        if self.screen == Screen::Browser && self.br.as_ref().is_some_and(|br| br.inspect_row) {
             if let Some(br) = self.br.as_mut() {
-                br.inspect_row = false;
+                match k.code {
+                    KeyCode::Esc => br.inspect_row = false,
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        br.inspect_x = br.inspect_x.saturating_sub(4)
+                    }
+                    KeyCode::Right | KeyCode::Char('l') => {
+                        br.inspect_x = br.inspect_x.saturating_add(4)
+                    }
+                    KeyCode::Home => br.inspect_x = 0,
+                    _ => {}
+                }
             }
             return;
         }
@@ -1781,6 +1790,8 @@ impl App {
             let ncols = br.rows.as_ref().map(|r| r.grid.columns.len()).unwrap_or(0);
             if row_idx < nrows && col_idx < ncols {
                 br.cell = (br.row_off + row_idx, col_idx);
+                br.inspect_row = true;
+                br.inspect_x = 0;
             }
         }
     }

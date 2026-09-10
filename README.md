@@ -76,15 +76,17 @@ Sidebar: `j/k` or arrows move, `Enter` opens relation, `/` filters,
 
 Rows tab: arrows/hjkl move the cell cursor, `PgUp/PgDn` or `n/p` change page,
 `g/G` first/last page, `s` sorts by the cursor column (asc → desc → off),
-`/` edits a raw `WHERE` clause, `e` exports the loaded page to CSV.
-Click a column header to sort; click cells to move the cursor.
+`/` edits a raw `WHERE` clause, `e` exports the loaded page to CSV. Click a
+data row, or press `Enter`, to open full-screen row detail; `←/→` or `h/l`
+scroll horizontally and `Esc` closes it.
+Click a column header to sort; click a data row to inspect it.
 
 Query tab: type SQL, `Alt+Enter` or `F5` executes, `Ctrl+H` toggles history,
 `Esc` returns from results to the editor, `e` exports the last result grid.
 In the editor `Tab` indents, `Ctrl+K` kills to end of line.
 
 Mouse: wheel scrolls lists/grids/results; left-click selects relations,
-switches tabs, focuses form fields and positions cursors.
+switches tabs, focuses form fields, positions cursors, or opens row detail.
 
 ## Architecture
 

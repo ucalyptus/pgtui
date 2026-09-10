@@ -4,7 +4,10 @@ use crate::app::{App, Browser, CfField, Focus, QMode, Screen, Tab, ToastKind, CF
 use ratatui::layout::{Alignment, Constraint, Layout, Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Cell, Clear, Paragraph, Row, Table, Wrap};
+use ratatui::widgets::{
+    Block, Cell, Clear, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table,
+    Wrap,
+};
 use ratatui::Frame;
 use std::cmp::min;
 
@@ -988,37 +991,48 @@ fn draw_row_inspector(f: &mut Frame, br: &Browser) {
     let Some(row) = rows.grid.rows.get(br.cell.0) else {
         return;
     };
-    let area = centered(
-        f.area(),
-        f.area().width.saturating_sub(8).min(110),
-        f.area().height.saturating_sub(6).min(32),
-    );
+    let area = f.area();
     f.render_widget(Clear, area);
-    let block = bordered(" selected row · esc close ").border_style(Style::new().fg(ACCENT));
+    let title = format!(
+        " selected row · ←/→ or h/l scroll · home reset · esc close · offset {} ",
+        br.inspect_x
+    );
+    let block = bordered(&title).border_style(Style::new().fg(ACCENT));
     let inner = block.inner(area);
     f.render_widget(block, area);
-    let lines: Vec<Line> = rows
-        .grid
-        .columns
-        .iter()
-        .enumerate()
-        .map(|(i, name)| {
-            Line::from(vec![
-                Span::styled(format!("{name}: "), Style::new().fg(ACCENT).bold()),
-                Span::styled(
-                    row.get(i)
-                        .and_then(|value| value.as_deref())
-                        .unwrap_or(NULL_STR),
-                    Style::new().fg(Color::Reset),
-                ),
-            ])
-        })
-        .collect();
-    f.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .scroll((0, 0)),
-        inner,
+
+    let mut lines = Vec::with_capacity(rows.grid.columns.len());
+    let mut content_width = 0;
+    for (i, name) in rows.grid.columns.iter().enumerate() {
+        let value = row
+            .get(i)
+            .and_then(|value| value.as_deref())
+            .unwrap_or(NULL_STR);
+        content_width = content_width.max(name.chars().count() + 2 + value.chars().count());
+        lines.push(Line::from(vec![
+            Span::styled(format!("{name}: "), Style::new().fg(ACCENT).bold()),
+            Span::styled(value, Style::new().fg(Color::Reset)),
+        ]));
+    }
+
+    let body = Rect::new(
+        inner.x,
+        inner.y,
+        inner.width,
+        inner.height.saturating_sub(1),
+    );
+    let max_scroll = content_width.saturating_sub(body.width as usize);
+    let offset = br.inspect_x.min(max_scroll);
+    f.render_widget(Paragraph::new(lines).scroll((0, offset as u16)), body);
+
+    let footer = Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1);
+    let mut scrollbar_state = ScrollbarState::new(content_width)
+        .position(offset)
+        .viewport_content_length(body.width as usize);
+    f.render_stateful_widget(
+        Scrollbar::new(ScrollbarOrientation::HorizontalBottom),
+        footer,
+        &mut scrollbar_state,
     );
 }
 
@@ -1041,7 +1055,7 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
             (_, Tab::Rows) => {
                 let total = br.rows.as_ref().map(|r| r.total).unwrap_or(0);
                 format!(
-                    "arrows move · enter inspect · s sort · n/p page · / where · e export · {total} rows"
+                    "arrows move · click/enter inspect · s sort · n/p page · / where · e export · {total} rows"
                 )
             }
             (_, Tab::Info) => "r refresh".to_string(),
@@ -1077,7 +1091,7 @@ fn draw_help(f: &mut Frame) {
  sidebar
    j/k · arrows move       enter open relation     / filter (live)
  rows
-   arrows/hjkl move cell   enter inspect selected row  s sort column
+   arrows/hjkl move cell   click/enter full row detail  s sort column
    n/p · pgup/pgdn page    g/G first/last page        / raw WHERE filter
    e export page → csv
  query editor
