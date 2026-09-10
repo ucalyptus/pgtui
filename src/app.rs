@@ -2084,4 +2084,44 @@ default login fallback password fallback-pass"#,
         assert_eq!(entries[0].password, "p ss");
         assert_eq!(find_netrc(&entries, "missing").unwrap().login, "fallback");
     }
+    #[test]
+    fn dragging_row_scrollbar_moves_horizontal_offset() {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let mut a = App::new(
+            tx,
+            StartupOpts {
+                url: None,
+                host: None,
+                port: None,
+                user: None,
+                db: None,
+                password: None,
+            },
+        );
+        let mut br = Browser::new(ConnMeta {
+            full_version: String::new(),
+            short_version: String::new(),
+            database: "d".into(),
+            user: "u".into(),
+            host: "h".into(),
+            port: "5432".into(),
+        });
+        br.inspect_row = true;
+        br.rects.row_scrollbar = Rect::new(10, 20, 100, 1);
+        br.rects.row_scroll_max = 1_000;
+        a.br = Some(br);
+        a.screen = Screen::Browser;
+
+        let mouse = |kind, column| MouseEvent {
+            kind,
+            column,
+            row: 20,
+            modifiers: KeyModifiers::NONE,
+        };
+        a.on_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 20));
+        a.on_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 90));
+        assert!(a.br.as_ref().unwrap().inspect_x > 0);
+        a.on_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 90));
+        assert!(!a.br.as_ref().unwrap().dragging_row_scrollbar);
+    }
 }
