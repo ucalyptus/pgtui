@@ -60,6 +60,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Screen::Form => draw_form(f, app),
         Screen::Browser => draw_browser(f, app),
     }
+    if app.screen == Screen::Browser && app.br.as_ref().is_some_and(|br| br.inspect_row) {
+        if let Some(br) = app.br.as_ref() {
+            draw_row_inspector(f, br);
+        }
+    }
     if app.help && app.screen == Screen::Browser {
         draw_help(f);
     }
@@ -319,21 +324,42 @@ fn draw_sidebar(f: &mut Frame, br: &mut Browser, sp: &str, area: Rect) {
         let open = cur_name.as_deref() == Some(t.label().as_str());
         let mut style = Style::new();
         if selected_idx {
-            style = style.bg(SEL_BG).add_modifier(Modifier::BOLD);
+            style = style
+                .bg(SEL_BG)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD);
         }
         let marker = if open { "●" } else { " " };
         let mut spans = vec![
             Span::styled(
                 format!("{marker} "),
-                Style::new().fg(if open { ACCENT } else { DIM }),
+                Style::new().fg(if selected_idx || open {
+                    Color::White
+                } else {
+                    DIM
+                }),
             ),
-            Span::styled(t.name.clone(), style.fg(Color::Reset)),
-            Span::styled(format!(" {}", t.kind), Style::new().fg(kind_color(&t.kind))),
+            Span::styled(
+                t.name.clone(),
+                style.fg(if selected_idx {
+                    Color::White
+                } else {
+                    Color::Reset
+                }),
+            ),
+            Span::styled(
+                format!(" {}", t.kind),
+                Style::new().fg(if selected_idx {
+                    Color::White
+                } else {
+                    kind_color(&t.kind)
+                }),
+            ),
         ];
         if t.est_rows > 0 {
             spans.push(Span::styled(
                 format!(" {}", human_count(t.est_rows)),
-                Style::new().fg(DIM),
+                Style::new().fg(if selected_idx { Color::White } else { DIM }),
             ));
         }
         let line = Line::from(spans);
@@ -539,7 +565,11 @@ fn draw_rows(f: &mut Frame, br: &mut Browser, sp: &str, area: Rect) {
                     .iter()
                     .map(|v| {
                         let (t, s) = cell_text(v);
-                        Cell::from(t.to_string()).style(if sel_row { s.bg(SEL_BG) } else { s })
+                        Cell::from(t.to_string()).style(if sel_row {
+                            s.bg(SEL_BG).fg(Color::White)
+                        } else {
+                            s
+                        })
                     })
                     .collect::<Vec<_>>(),
             )
@@ -953,6 +983,44 @@ fn draw_info(f: &mut Frame, br: &mut Browser, sp: &str, area: Rect) {
         .collect();
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
+fn draw_row_inspector(f: &mut Frame, br: &Browser) {
+    let Some(rows) = br.rows.as_ref() else { return };
+    let Some(row) = rows.grid.rows.get(br.cell.0) else {
+        return;
+    };
+    let area = centered(
+        f.area(),
+        f.area().width.saturating_sub(8).min(110),
+        f.area().height.saturating_sub(6).min(32),
+    );
+    f.render_widget(Clear, area);
+    let block = bordered(" selected row · esc close ").border_style(Style::new().fg(ACCENT));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let lines: Vec<Line> = rows
+        .grid
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            Line::from(vec![
+                Span::styled(format!("{name}: "), Style::new().fg(ACCENT).bold()),
+                Span::styled(
+                    row.get(i)
+                        .and_then(|value| value.as_deref())
+                        .unwrap_or(NULL_STR),
+                    Style::new().fg(Color::Reset),
+                ),
+            ])
+        })
+        .collect();
+    f.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .scroll((0, 0)),
+        inner,
+    );
+}
 
 fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     let Some(br) = app.br.as_ref() else { return };
@@ -972,7 +1040,9 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
             }
             (_, Tab::Rows) => {
                 let total = br.rows.as_ref().map(|r| r.total).unwrap_or(0);
-                format!("arrows move · s sort · n/p page · / where · e export · {total} rows")
+                format!(
+                    "arrows move · enter inspect · s sort · n/p page · / where · e export · {total} rows"
+                )
             }
             (_, Tab::Info) => "r refresh".to_string(),
             _ => "? help · tab panes".to_string(),
@@ -1007,8 +1077,9 @@ fn draw_help(f: &mut Frame) {
  sidebar
    j/k · arrows move       enter open relation     / filter (live)
  rows
-   arrows/hjkl move cell   s sort column           n/p · pgup/pgdn page
-   g/G first/last page     / raw WHERE filter      e export page → csv
+   arrows/hjkl move cell   enter inspect selected row  s sort column
+   n/p · pgup/pgdn page    g/G first/last page        / raw WHERE filter
+   e export page → csv
  query editor
    alt+enter / F5 run      ctrl+h history          tab indent
    ctrl+k kill to eol      ctrl+u clear head       esc results→editor

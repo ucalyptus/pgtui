@@ -655,6 +655,7 @@ pub struct Browser {
     pub row_off: usize,
     pub col_off: usize,
     pub order: Option<(String, bool)>,
+    pub inspect_row: bool,
 
     // query tab
     pub q: QueryState,
@@ -705,6 +706,7 @@ impl Browser {
             row_off: 0,
             col_off: 0,
             order: None,
+            inspect_row: false,
             q: QueryState::new(),
             stats: None,
             info_loading: false,
@@ -1185,6 +1187,15 @@ impl App {
             return;
         }
         if self.screen == Screen::Browser
+            && self.br.as_ref().is_some_and(|br| br.inspect_row)
+            && k.code == KeyCode::Esc
+        {
+            if let Some(br) = self.br.as_mut() {
+                br.inspect_row = false;
+            }
+            return;
+        }
+        if self.screen == Screen::Browser
             && !self.br.as_ref().map(Browser::editing).unwrap_or(false)
         {
             if let KeyCode::Char(c @ '1'..='5') = k.code {
@@ -1332,6 +1343,11 @@ impl App {
                 KeyCode::Tab => {
                     if let Some(br) = self.br.as_mut() {
                         br.focus = Focus::Sidebar;
+                    }
+                }
+                KeyCode::Enter if tab == Tab::Rows => {
+                    if let Some(br) = self.br.as_mut() {
+                        br.inspect_row = true;
                     }
                 }
                 KeyCode::Char('/') if tab == Tab::Rows => {
